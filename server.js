@@ -67,3 +67,19 @@ app.get("/hltb", async (req, res) => {
 app.listen(3000, () =>
   console.log("🔥 HLTB Proxy ativo em http://localhost:3000")
 );
+
+
+app.get("/debug", async (req, res) => {
+  const test = "elden ring";
+  const searchUrl = `https://howlongtobeat.com/?q=${encodeURIComponent(test)}`;
+
+  try {
+    const { data } = await axios.get(searchUrl, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+
+    res.send(data); // envia HTML completo
+  } catch (e) {
+    res.send("Erro: " + e);
+  }
+});
