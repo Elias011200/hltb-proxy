@@ -4,41 +4,61 @@ import * as cheerio from "cheerio";
 
 const app = express();
 
-// converte "Elden Ring" em URL válida do HLTB
-function toSlug(name) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
+// Faz busca por nome e retorna o ID do jogo
+async function searchHLTB(query) {
+  const searchUrl = `https://howlongtobeat.com/?q=${encodeURIComponent(query)}`;
+
+  const { data } = await axios.get(searchUrl, {
+    headers: { "User-Agent": "Mozilla/5.0" }
+  });
+
+  const $ = cheerio.load(data);
+
+  // procura links que começam com /game/
+  const link = $('a[href^="/game/"]').first().attr("href");
+  if (!link) return null;
+
+  // link vem no formato /game/12345
+  const id = link.split("/game/")[1];
+  return id;
+}
+
+// Pega as horas dentro da página do jogo
+async function fetchGameTimes(gameId) {
+  const url = `https://howlongtobeat.com/game/${gameId}`;
+
+  const { data } = await axios.get(url, {
+    headers: { "User-Agent": "Mozilla/5.0" }
+  });
+
+  const $ = cheerio.load(data);
+
+  const getTime = (title) => {
+    const row = $(`h4:contains("${title}")`).parent();
+    return row.find("div").last().text().trim() || "";
+  };
+
+  return {
+    main: getTime("Main Story"),
+    main_extra: getTime("Main + Extra"),
+    completionist: getTime("Completionist")
+  };
 }
 
 app.get("/hltb", async (req, res) => {
   const name = req.query.name;
-  if (!name) return res.json({ error: "Missing name parameter" });
+  if (!name) return res.json({ error: "Missing ?name=" });
 
   try {
-    const slug = toSlug(name);
-    const url = `https://howlongtobeat.com/game/${slug}`;
+    // 1. busca ID
+    const id = await searchHLTB(name);
+    if (!id) return res.json({ error: "Game not found" });
 
-    const { data } = await axios.get(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      }
-    });
+    // 2. pega tempos usando o ID
+    const times = await fetchGameTimes(id);
 
-    const $ = cheerio.load(data);
+    return res.json(times);
 
-    const main = $('h4:contains("Main Story")').next().text().trim();
-    const extra = $('h4:contains("Main + Extra")').next().text().trim();
-    const comp = $('h4:contains("Completionist")').next().text().trim();
-
-    return res.json({
-      name,
-      main,
-      main_extra: extra,
-      completionist: comp
-    });
   } catch (e) {
     return res.json({ error: e.toString() });
   }
