@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: hltb-proxy
+    env: node
+    region: frankfurt
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    autoDeploy: true
