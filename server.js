@@ -1,48 +1,12 @@
 import express from "express";
 import axios from "axios";
-import * as cheerio from "cheerio";
 
 const app = express();
+app.use(express.json());
 
-// Faz busca por nome e retorna o ID do jogo
-async function searchHLTB(query) {
-  const searchUrl = `https://howlongtobeat.com/?q=${encodeURIComponent(query)}`;
-
-  const { data } = await axios.get(searchUrl, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
-
-  const $ = cheerio.load(data);
-
-  // procura links que começam com /game/
-  const link = $('a[href^="/game/"]').first().attr("href");
-  if (!link) return null;
-
-  // link vem no formato /game/12345
-  const id = link.split("/game/")[1];
-  return id;
-}
-
-// Pega as horas dentro da página do jogo
-async function fetchGameTimes(gameId) {
-  const url = `https://howlongtobeat.com/game/${gameId}`;
-
-  const { data } = await axios.get(url, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
-
-  const $ = cheerio.load(data);
-
-  const getTime = (title) => {
-    const row = $(`h4:contains("${title}")`).parent();
-    return row.find("div").last().text().trim() || "";
-  };
-
-  return {
-    main: getTime("Main Story"),
-    main_extra: getTime("Main + Extra"),
-    completionist: getTime("Completionist")
-  };
+// Função para dividir nome em palavras
+function splitTerms(name) {
+  return name.split(" ").filter(x => x.trim());
 }
 
 app.get("/hltb", async (req, res) => {
@@ -50,14 +14,53 @@ app.get("/hltb", async (req, res) => {
   if (!name) return res.json({ error: "Missing ?name=" });
 
   try {
-    // 1. busca ID
-    const id = await searchHLTB(name);
-    if (!id) return res.json({ error: "Game not found" });
+    // 1. faz busca nos servidores do HLTB
+    const searchUrl = "https://howlongtobeat.com/api/search";
 
-    // 2. pega tempos usando o ID
-    const times = await fetchGameTimes(id);
+    const body = {
+      searchType: "game",
+      searchTerms: splitTerms(name),
+      searchPage: 1,
+      size: 20,
+      searchOptions: {
+        games: {
+          userId: 0,
+          platform: "",
+          sortCategory: "name",
+          rangeCategory: "main",
+          rangeTime: { min: 0, max: 1000 },
+          gameplay: { min: 0, max: 1000 },
+          difficulty: 0,
+          tbc: false,
+          isGt: false,
+          includeDlc: false,
+          isReleases: false
+        }
+      }
+    };
 
-    return res.json(times);
+    const { data } = await axios.post(searchUrl, body, {
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
+
+    const results = data.data || [];
+    if (results.length === 0) {
+      return res.json({ error: "No results" });
+    }
+
+    // Pega o primeiro jogo mais relevante
+    const g = results[0];
+
+    return res.json({
+      id: g.game_id,
+      name: g.game_name,
+      main: g.comp_main || "",
+      main_extra: g.comp_plus || "",
+      completionist: g.comp_100 || ""
+    });
 
   } catch (e) {
     return res.json({ error: e.toString() });
@@ -65,21 +68,5 @@ app.get("/hltb", async (req, res) => {
 });
 
 app.listen(3000, () =>
-  console.log("🔥 HLTB Proxy ativo em http://localhost:3000")
+  console.log("🔥 HLTB Proxy API ativo em http://localhost:3000")
 );
-
-
-app.get("/debug", async (req, res) => {
-  const test = "elden ring";
-  const searchUrl = `https://howlongtobeat.com/?q=${encodeURIComponent(test)}`;
-
-  try {
-    const { data } = await axios.get(searchUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-
-    res.send(data); // envia HTML completo
-  } catch (e) {
-    res.send("Erro: " + e);
-  }
-});
